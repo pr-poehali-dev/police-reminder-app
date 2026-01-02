@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "name": "Get bookmarks with user_id",
+      "method": "GET",
+      "queryStringParameters": {
+        "user_id": "1"
+      },
+      "expectedStatus": 200,
+      "expectedBody": [],
+      "bodyMatcher": "partial"
+    }
+  ]
+}

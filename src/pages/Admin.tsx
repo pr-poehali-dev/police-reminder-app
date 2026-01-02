@@ -18,6 +18,7 @@ interface Article {
   content: string;
   category: string;
   tags: string[];
+  image_url?: string;
 }
 
 const categories = [
@@ -38,6 +39,7 @@ export default function Admin() {
   const [formData, setFormData] = useState({
     title: '',
     content: '',
+    imageFile: null as File | null,
     category: 'administrative',
     tags: ''
   });
@@ -45,6 +47,18 @@ export default function Admin() {
   useEffect(() => {
     loadArticles();
   }, []);
+
+  const convertImageToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result as string;
+        resolve(base64.split(',')[1]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
 
   const loadArticles = async () => {
     try {
@@ -68,6 +82,14 @@ export default function Admin() {
     const tagsArray = formData.tags.split(',').map(t => t.trim()).filter(t => t);
     
     try {
+      let imageData = null;
+      let filename = null;
+
+      if (formData.imageFile) {
+        imageData = await convertImageToBase64(formData.imageFile);
+        filename = formData.imageFile.name;
+      }
+
       const url = editingArticle 
         ? API_URL 
         : API_URL;
@@ -75,8 +97,8 @@ export default function Admin() {
       const method = editingArticle ? 'PUT' : 'POST';
       
       const body = editingArticle
-        ? { id: editingArticle.id, ...formData, tags: tagsArray }
-        : { ...formData, tags: tagsArray };
+        ? { id: editingArticle.id, ...formData, tags: tagsArray, image: imageData, filename }
+        : { ...formData, tags: tagsArray, image: imageData, filename };
       
       const response = await fetch(url, {
         method,
@@ -90,7 +112,7 @@ export default function Admin() {
           description: editingArticle ? 'Статья обновлена' : 'Статья создана'
         });
         
-        setFormData({ title: '', content: '', category: 'administrative', tags: '' });
+        setFormData({ title: '', content: '', category: 'administrative', tags: '', imageFile: null });
         setEditingArticle(null);
         setIsDialogOpen(false);
         loadArticles();
@@ -110,7 +132,8 @@ export default function Admin() {
       title: article.title,
       content: article.content,
       category: article.category,
-      tags: article.tags.join(', ')
+      tags: article.tags.join(', '),
+      imageFile: null
     });
     setIsDialogOpen(true);
   };
@@ -230,6 +253,18 @@ export default function Admin() {
                     onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
                     placeholder="хулиганство, порядок, штраф"
                   />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Изображение (необязательно)</label>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setFormData({ ...formData, imageFile: e.target.files?.[0] || null })}
+                  />
+                  {formData.imageFile && (
+                    <p className="text-sm text-muted-foreground mt-1">{formData.imageFile.name}</p>
+                  )}
                 </div>
 
                 <div className="flex gap-2 justify-end pt-4">

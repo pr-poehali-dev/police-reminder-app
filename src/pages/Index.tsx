@@ -6,9 +6,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import Icon from '@/components/ui/icon';
+import { authService } from '@/lib/auth';
 
 const API_URL = 'https://functions.poehali.dev/ae53e1c2-96ac-4a9e-924e-9692a718ddf1';
+const BOOKMARKS_API = 'https://functions.poehali.dev/b6eb6b5d-3b18-4485-9db8-78d520d1e550';
+const CHAT_API = 'https://functions.poehali.dev/1a769b02-9097-45b0-889b-2ce26ee269c3';
 
 interface Article {
   id: number;
@@ -16,6 +20,14 @@ interface Article {
   content: string;
   category: string;
   tags: string[];
+  image_url?: string;
+}
+
+interface ChatMessage {
+  id: number;
+  username: string;
+  message: string;
+  created_at: string;
 }
 
 const categories = [
@@ -28,14 +40,22 @@ const categories = [
 
 export default function Index() {
   const navigate = useNavigate();
+  const user = authService.getUser();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
   const [bookmarks, setBookmarks] = useState<Set<number>>(new Set());
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     loadArticles();
+    loadBookmarks();
+    loadChatMessages();
+    const interval = setInterval(loadChatMessages, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadArticles = async () => {
@@ -50,14 +70,76 @@ export default function Index() {
     }
   };
 
-  const toggleBookmark = (id: number) => {
-    const newBookmarks = new Set(bookmarks);
-    if (newBookmarks.has(id)) {
-      newBookmarks.delete(id);
-    } else {
-      newBookmarks.add(id);
+  const loadBookmarks = async () => {
+    if (!user) return;
+    try {
+      const response = await fetch(`${BOOKMARKS_API}?user_id=${user.id}`);
+      const data = await response.json();
+      setBookmarks(new Set(data));
+    } catch (error) {
+      console.error('Failed to load bookmarks:', error);
     }
-    setBookmarks(newBookmarks);
+  };
+
+  const loadChatMessages = async () => {
+    try {
+      const response = await fetch(CHAT_API);
+      const data = await response.json();
+      setChatMessages(data);
+    } catch (error) {
+      console.error('Failed to load chat:', error);
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!newMessage.trim() || !user) return;
+
+    try {
+      await fetch(CHAT_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.id,
+          username: user.username,
+          message: newMessage
+        })
+      });
+      setNewMessage('');
+      loadChatMessages();
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    }
+  };
+
+  const toggleBookmark = async (id: number) => {
+    if (!user) return;
+
+    const isBookmarked = bookmarks.has(id);
+
+    try {
+      if (isBookmarked) {
+        await fetch(`${BOOKMARKS_API}?user_id=${user.id}&article_id=${id}`, { method: 'DELETE' });
+        const newBookmarks = new Set(bookmarks);
+        newBookmarks.delete(id);
+        setBookmarks(newBookmarks);
+      } else {
+        await fetch(BOOKMARKS_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: user.id, article_id: id })
+        });
+        const newBookmarks = new Set(bookmarks);
+        newBookmarks.add(id);
+        setBookmarks(newBookmarks);
+      }
+    } catch (error) {
+      console.error('Failed to toggle bookmark:', error);
+    }
+  };
+
+  const handleLogout = () => {
+    authService.logout();
+    navigate('/auth');
   };
 
   const filteredArticles = articles.filter(article => {
@@ -79,14 +161,62 @@ export default function Index() {
               <Icon name="Shield" size={32} className="text-primary-foreground" />
               <h1 className="text-2xl font-bold">Памятка полицейского</h1>
             </div>
-            <Button 
-              variant="secondary" 
-              size="icon"
-              onClick={() => navigate('/admin')}
-              title="Админ-панель"
-            >
-              <Icon name="Settings" size={20} />
-            </Button>
+            <div className="flex items-center gap-2">
+              <Sheet open={chatOpen} onOpenChange={setChatOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="secondary" size="icon" title="Чат">
+                    <Icon name="MessageSquare" size={20} />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent className="w-full sm:max-w-md">
+                  <SheetHeader>
+                    <SheetTitle>Общий чат</SheetTitle>
+                  </SheetHeader>
+                  <div className="flex flex-col h-[calc(100vh-120px)] mt-4">
+                    <div className="flex-1 overflow-y-auto space-y-3 mb-4">
+                      {chatMessages.map((msg) => (
+                        <div key={msg.id} className="bg-muted p-3 rounded-lg">
+                          <div className="font-semibold text-sm text-primary">{msg.username}</div>
+                          <div className="text-sm">{msg.message}</div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {new Date(msg.created_at).toLocaleString('ru-RU')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Напишите сообщение..."
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                      />
+                      <Button onClick={sendMessage} size="icon">
+                        <Icon name="Send" size={20} />
+                      </Button>
+                    </div>
+                  </div>
+                </SheetContent>
+              </Sheet>
+              {user?.is_admin && (
+                <Button 
+                  variant="secondary" 
+                  size="icon"
+                  onClick={() => navigate('/admin')}
+                  title="Админ-панель"
+                >
+                  <Icon name="Settings" size={20} />
+                </Button>
+              )}
+              <Button 
+                variant="secondary" 
+                size="icon"
+                onClick={handleLogout}
+                title="Выйти"
+              >
+                <Icon name="LogOut" size={20} />
+              </Button>
+            </div>
           </div>
         </div>
       </header>

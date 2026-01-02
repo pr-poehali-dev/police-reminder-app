@@ -1,10 +1,32 @@
 import json
 import os
+import base64
+import boto3
+from uuid import uuid4
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 def get_db_connection():
     return psycopg2.connect(os.environ['DATABASE_URL'])
+
+def upload_image_to_s3(image_data: str, filename: str) -> str:
+    s3 = boto3.client('s3',
+        endpoint_url='https://bucket.poehali.dev',
+        aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+        aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
+    )
+    
+    image_bytes = base64.b64decode(image_data)
+    key = f'articles/{uuid4()}_{filename}'
+    
+    s3.put_object(
+        Bucket='files',
+        Key=key,
+        Body=image_bytes,
+        ContentType='image/jpeg'
+    )
+    
+    return f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
 
 def handler(event: dict, context) -> dict:
     '''API для управления статьями памятки полицейского'''
@@ -33,7 +55,7 @@ def handler(event: dict, context) -> dict:
             search = params.get('search')
             
             if article_id:
-                cursor.execute('SELECT * FROM articles WHERE id = %s', (article_id,))
+                cursor.execute('SELECT * FROM t_p18143168_police_reminder_app.articles WHERE id = %s', (article_id,))
                 article = cursor.fetchone()
                 if article:
                     return {
@@ -49,7 +71,7 @@ def handler(event: dict, context) -> dict:
                     'isBase64Encoded': False
                 }
             
-            query = 'SELECT * FROM articles WHERE 1=1'
+            query = 'SELECT * FROM t_p18143168_police_reminder_app.articles WHERE 1=1'
             query_params = []
             
             if category:
@@ -79,6 +101,8 @@ def handler(event: dict, context) -> dict:
             content = data.get('content')
             category = data.get('category')
             tags = data.get('tags', [])
+            image_data = data.get('image')
+            filename = data.get('filename', 'image.jpg')
             
             if not all([title, content, category]):
                 return {
@@ -88,9 +112,13 @@ def handler(event: dict, context) -> dict:
                     'isBase64Encoded': False
                 }
             
+            image_url = None
+            if image_data:
+                image_url = upload_image_to_s3(image_data, filename)
+            
             cursor.execute(
-                'INSERT INTO articles (title, content, category, tags) VALUES (%s, %s, %s, %s) RETURNING *',
-                (title, content, category, tags)
+                'INSERT INTO t_p18143168_police_reminder_app.articles (title, content, category, tags, image_url) VALUES (%s, %s, %s, %s, %s) RETURNING *',
+                (title, content, category, tags, image_url)
             )
             article = cursor.fetchone()
             conn.commit()
@@ -129,11 +157,15 @@ def handler(event: dict, context) -> dict:
             if 'tags' in data:
                 updates.append('tags = %s')
                 params.append(data['tags'])
+            if 'image' in data and data['image']:
+                image_url = upload_image_to_s3(data['image'], data.get('filename', 'image.jpg'))
+                updates.append('image_url = %s')
+                params.append(image_url)
             
             updates.append('updated_at = CURRENT_TIMESTAMP')
             params.append(article_id)
             
-            query = f'UPDATE articles SET {", ".join(updates)} WHERE id = %s RETURNING *'
+            query = f'UPDATE t_p18143168_police_reminder_app.articles SET {", ".join(updates)} WHERE id = %s RETURNING *'
             cursor.execute(query, params)
             article = cursor.fetchone()
             conn.commit()
@@ -165,7 +197,7 @@ def handler(event: dict, context) -> dict:
                     'isBase64Encoded': False
                 }
             
-            cursor.execute('DELETE FROM articles WHERE id = %s RETURNING id', (article_id,))
+            cursor.execute('DELETE FROM t_p18143168_police_reminder_app.articles WHERE id = %s RETURNING id', (article_id,))
             deleted = cursor.fetchone()
             conn.commit()
             
