@@ -1,77 +1,22 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Icon from '@/components/ui/icon';
 
+const API_URL = 'https://functions.poehali.dev/ae53e1c2-96ac-4a9e-924e-9692a718ddf1';
+
 interface Article {
-  id: string;
+  id: number;
   title: string;
   content: string;
   category: string;
   tags: string[];
 }
-
-const mockData: Article[] = [
-  {
-    id: '1',
-    title: 'Статья 20.1 КоАП РФ',
-    content: 'Мелкое хулиганство — нарушение общественного порядка, выражающее явное неуважение к обществу...',
-    category: 'administrative',
-    tags: ['хулиганство', 'порядок']
-  },
-  {
-    id: '2',
-    title: 'Право на задержание',
-    content: 'Полицейский имеет право задержать лицо при наличии достаточных оснований...',
-    category: 'rights',
-    tags: ['задержание', 'полномочия']
-  },
-  {
-    id: '3',
-    title: 'Статья 228 УК РФ',
-    content: 'Незаконные приобретение, хранение, перевозка, изготовление, переработка наркотических средств...',
-    category: 'laws',
-    tags: ['наркотики', 'уголовное']
-  },
-  {
-    id: '4',
-    title: 'Протокол об административном правонарушении',
-    content: 'Форма протокола, требования к оформлению и обязательные реквизиты...',
-    category: 'documents',
-    tags: ['протокол', 'оформление']
-  },
-  {
-    id: '5',
-    title: 'Статья 12.8 КоАП РФ',
-    content: 'Управление транспортным средством водителем, находящимся в состоянии опьянения...',
-    category: 'administrative',
-    tags: ['опьянение', 'транспорт']
-  },
-  {
-    id: '6',
-    title: 'Применение физической силы',
-    content: 'Полицейский имеет право применять физическую силу в случаях...',
-    category: 'rights',
-    tags: ['применение силы', 'полномочия']
-  },
-  {
-    id: '7',
-    title: 'Статья 158 УК РФ',
-    content: 'Кража — тайное хищение чужого имущества...',
-    category: 'laws',
-    tags: ['кража', 'хищение']
-  },
-  {
-    id: '8',
-    title: 'Постановление по делу об административном правонарушении',
-    content: 'Форма и содержание постановления при вынесении решения...',
-    category: 'documents',
-    tags: ['постановление', 'решение']
-  }
-];
 
 const categories = [
   { id: 'all', name: 'Все', icon: 'Grid3x3' },
@@ -82,11 +27,30 @@ const categories = [
 ];
 
 export default function Index() {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
-  const [bookmarks, setBookmarks] = useState<Set<string>>(new Set());
+  const [bookmarks, setBookmarks] = useState<Set<number>>(new Set());
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const toggleBookmark = (id: string) => {
+  useEffect(() => {
+    loadArticles();
+  }, []);
+
+  const loadArticles = async () => {
+    try {
+      const response = await fetch(API_URL);
+      const data = await response.json();
+      setArticles(data);
+    } catch (error) {
+      console.error('Failed to load articles:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleBookmark = (id: number) => {
     const newBookmarks = new Set(bookmarks);
     if (newBookmarks.has(id)) {
       newBookmarks.delete(id);
@@ -96,7 +60,7 @@ export default function Index() {
     setBookmarks(newBookmarks);
   };
 
-  const filteredArticles = mockData.filter(article => {
+  const filteredArticles = articles.filter(article => {
     const matchesSearch = article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          article.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          article.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -104,15 +68,25 @@ export default function Index() {
     return matchesSearch && matchesCategory;
   });
 
-  const bookmarkedArticles = mockData.filter(article => bookmarks.has(article.id));
+  const bookmarkedArticles = articles.filter(article => bookmarks.has(article.id));
 
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 bg-primary text-primary-foreground shadow-lg">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <Icon name="Shield" size={32} className="text-primary-foreground" />
-            <h1 className="text-2xl font-bold">Памятка полицейского</h1>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Icon name="Shield" size={32} className="text-primary-foreground" />
+              <h1 className="text-2xl font-bold">Памятка полицейского</h1>
+            </div>
+            <Button 
+              variant="secondary" 
+              size="icon"
+              onClick={() => navigate('/admin')}
+              title="Админ-панель"
+            >
+              <Icon name="Settings" size={20} />
+            </Button>
           </div>
         </div>
       </header>
@@ -158,7 +132,11 @@ export default function Index() {
               ))}
             </div>
 
-            {filteredArticles.length === 0 ? (
+            {loading ? (
+              <div className="text-center py-12">
+                <Icon name="Loader2" size={48} className="animate-spin mx-auto text-muted-foreground" />
+              </div>
+            ) : filteredArticles.length === 0 ? (
               <Card className="p-8 text-center">
                 <Icon name="SearchX" size={48} className="mx-auto mb-4 text-muted-foreground" />
                 <p className="text-muted-foreground">Ничего не найдено</p>
